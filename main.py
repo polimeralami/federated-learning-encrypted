@@ -16,13 +16,12 @@ def load_dataset():
     dataset_test = datasets.MNIST('./data/mnist/', train=False, download=True, transform=trans_mnist)
     return dataset_train, dataset_test
 
-def create_client_server():
+def create_client_server(dataset_train, args):
     num_items = int(len(dataset_train) / args.num_users)
     clients, all_idxs = [], [i for i in range(len(dataset_train))]
     net_glob = CNNMnist(args=args).to(args.device)
 
     # divide training data, i.i.d.
-    # init models with same parameters
     for i in range(args.num_users):
         new_idxs = set(np.random.choice(all_idxs, num_items, replace=False))
         all_idxs = list(set(all_idxs) - new_idxs)
@@ -32,7 +31,6 @@ def create_client_server():
     server = Server(args=args, w=copy.deepcopy(net_glob.state_dict()))
 
     return clients, server
-
 
 if __name__ == '__main__':
 
@@ -44,7 +42,7 @@ if __name__ == '__main__':
     dataset_train, dataset_test = load_dataset()
 
     print("clients and server initialization...")
-    clients, server = create_client_server()
+    clients, server = create_client_server(dataset_train, args)
 
     # statistics for plot
     all_acc_train = []
@@ -70,12 +68,12 @@ if __name__ == '__main__':
         # update local weights
         for idx in range(args.num_users):
             clients[idx].update(w_glob)
-        
+
         epoch_end = time.time()
         print(colored('=====Epoch {:3d}====='.format(iter), 'yellow'))
         print('Training time:', epoch_end - epoch_start)
 
-        if args.mode == 'Paillier':
+        if args.mode in ['Paillier', 'DP_Paillier']:
             server.model.load_state_dict(copy.deepcopy(clients[0].model.state_dict()))
 
         # testing

@@ -36,7 +36,7 @@ class Server():
                 self.model.state_dict()[k] += update_w_avg[k]
             return copy.deepcopy(self.model.state_dict()), sum(self.clients_loss) / len(self.clients_loss)
 
-        elif self.args.mode == 'Paillier':
+        elif self.args.mode == 'Paillier':  # Paillier mechanism
             update_w_avg = copy.deepcopy(self.clients_update_w[0])
             
             for k in update_w_avg.keys():
@@ -47,6 +47,18 @@ class Server():
                 for j in range(len(update_w_avg[k])):  # element-wise avg
                     update_w_avg[k][j] /= client_num
                 
+            return update_w_avg, sum(self.clients_loss) / len(self.clients_loss)
+        
+        elif self.args.mode == 'DP_Paillier':  # DP + Paillier mechanism
+            update_w_avg = copy.deepcopy(self.clients_update_w[0])
+            for k in update_w_avg.keys():
+                client_num = len(self.clients_update_w)
+                for i in range(1, client_num):  # client-wise sum
+                    for j in range(len(update_w_avg[k])):  # element-wise sum
+                        update_w_avg[k][j] += self.clients_update_w[i][k][j]
+                for j in range(len(update_w_avg[k])):  # element-wise avg
+                    update_w_avg[k][j] /= client_num
+            
             return update_w_avg, sum(self.clients_loss) / len(self.clients_loss)
         
     def test(self, datatest):

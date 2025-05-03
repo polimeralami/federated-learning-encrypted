@@ -28,10 +28,10 @@ class Client():
         self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
         self.model = CNNMnist(args=args).to(args.device)
         self.model.load_state_dict(w)
-        # DP hyperparameters
+        # DP hyperparameter
         self.C = self.args.C
-        # Paillier initialization
-        if self.args.mode == 'Paillier':
+        # Paillier keys for encryption/decryption
+        if self.args.mode in ['Paillier', 'DP_Paillier']:
             self.pub_key = global_pub_key
             self.priv_key = global_priv_key
         
@@ -54,55 +54,65 @@ class Client():
                 batch_loss.append(loss.item())
         
         w_new = net.state_dict()
-
         update_w = {}
+
+        # PLAIN
         if self.args.mode == 'plain':
             for k in w_new.keys():
                 update_w[k] = w_new[k] - w_old[k]
-                
-        elif self.args.mode == 'DP':  # DP mechanism
+
+        # DIFFERENTIAL PRIVACY
+        elif self.args.mode == 'DP':
             for k in w_new.keys():
                 update_w[k] = w_new[k] - w_old[k]
-                # L2-norm
                 sensitivity = torch.norm(update_w[k], p=2)
-                # clip
                 update_w[k] = update_w[k] / max(1, sensitivity / self.C)
 
-        elif self.args.mode == 'Paillier':  # Paillier encryption
+        # PAILLIER ENCRYPTION
+        elif self.args.mode == 'Paillier':
             print('encrypting...')
             enc_start = time.time()
             for k in w_new.keys():
                 update_w[k] = w_new[k] - w_old[k]
-                # flatten weight
                 list_w = update_w[k].view(-1).cpu().tolist()
-                # encryption
-                for i, elem in enumerate(list_w):
-                    list_w[i] = self.pub_key.encrypt(elem)
-                update_w[k] = list_w
+                update_w[k] = [self.pub_key.encrypt(elem) for elem in list_w]
             enc_end = time.time()
             print('Encryption time:', enc_end - enc_start)
+
+        # DP + PAILLIER
+        elif self.args.mode == 'DP_Paillier':
+            print('applying DP and encrypting...')
+            enc_start = time.time()
+            for k in w_new.keys():
+                update_w[k] = w_new[k] - w_old[k]
+                sensitivity = torch.norm(update_w[k], p=2)
+                update_w[k] = update_w[k] / max(1, sensitivity / self.C)
+                list_w = update_w[k].view(-1).cpu().tolist()
+                update_w[k] = [self.pub_key.encrypt(elem) for elem in list_w]
+            enc_end = time.time()
+            print('Encryption time:', enc_end - enc_start)
+
         else:
             raise NotImplementedError
 
         return update_w, sum(batch_loss) / len(batch_loss)
 
     def update(self, w_glob):
-        if self.args.mode == 'plain' or self.args.mode == 'DP':
+        if self.args.mode in ['plain', 'DP']:
             self.model.load_state_dict(w_glob)
-        elif self.args.mode == 'Paillier':  # Paillier decryption
-            # for paillier, w_glob is update_w_avg here
+
+        elif self.args.mode in ['Paillier', 'DP_Paillier']:
             update_w_avg = copy.deepcopy(w_glob)
             print('decrypting...')
             dec_start = time.time()
             for k in update_w_avg.keys():
-                # decryption
                 for i, elem in enumerate(update_w_avg[k]):
                     update_w_avg[k][i] = self.priv_key.decrypt(elem)
-                # reshape to original and update
                 origin_shape = list(self.model.state_dict()[k].size())
                 update_w_avg[k] = torch.FloatTensor(update_w_avg[k]).to(self.args.device).view(*origin_shape)
                 self.model.state_dict()[k] += update_w_avg[k]
             dec_end = time.time()
             print('Decryption time:', dec_end - dec_start)
+
         else:
             raise NotImplementedError
