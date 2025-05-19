@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import time
 import torch
@@ -9,6 +10,16 @@ from server import *
 import copy
 from termcolor import colored
 import matplotlib.pyplot as plt
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+# Set the seed
+set_seed(42)
 
 def load_dataset():
     trans_mnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -49,6 +60,13 @@ if __name__ == '__main__':
     all_acc_test = []
     all_loss_glob = []
 
+    # Evaluate initial model before any training
+    print("Initial evaluation before any training")
+    acc_train, _ = server.test(dataset_train)
+    acc_test, _ = server.test(dataset_test)
+    print("Initial Train Accuracy: {:.2f}%".format(acc_train))
+    print("Initial Test Accuracy: {:.2f}%".format(acc_test))
+
     # training
     print("start training...")
     print('Algorithm:', colored(args.mode, 'green'))
@@ -85,6 +103,11 @@ if __name__ == '__main__':
         all_acc_train.append(acc_train)
         all_acc_test.append(acc_test)
         all_loss_glob.append(loss_glob)
+
+    # Final output for dp_tune.py regex
+    print("Train Accuracy: {:.2f}, Test Accuracy: {:.2f}, Loss: {:.3f}".format(
+        all_acc_train[-1], all_acc_test[-1], all_loss_glob[-1]
+    ))
 
     # plot learning curve
     if not args.no_plot:
